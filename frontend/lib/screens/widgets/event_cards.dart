@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-class FeaturedEventCard extends StatelessWidget {
+class FeaturedEventCard extends StatefulWidget {
   final String title;
   final String imageUrl;
   final String description;
@@ -19,6 +19,11 @@ class FeaturedEventCard extends StatelessWidget {
   });
 
   @override
+  State<FeaturedEventCard> createState() => _FeaturedEventCardState();
+}
+
+class _FeaturedEventCardState extends State<FeaturedEventCard> {
+  @override
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -34,7 +39,7 @@ class FeaturedEventCard extends StatelessWidget {
           children: [
             // Background image
             Image.network(
-              imageUrl,
+              widget.imageUrl,
               fit: BoxFit.cover,
             ),
 
@@ -65,7 +70,7 @@ class FeaturedEventCard extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          title,
+                          widget.title,
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 18,
@@ -77,14 +82,14 @@ class FeaturedEventCard extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              date,
+                              widget.date,
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 14,
                               ),
                             ),
                             Text(
-                              '$startTime - $endTime',
+                              '${widget.startTime} - ${widget.endTime}',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 14,
@@ -96,7 +101,7 @@ class FeaturedEventCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      description,
+                      widget.description,
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 14,
@@ -115,7 +120,7 @@ class FeaturedEventCard extends StatelessWidget {
   }
 }
 
-class EventCard extends StatelessWidget {
+class EventCard extends StatefulWidget {
   final String title;
   final int participants;
   final String day;
@@ -138,6 +143,11 @@ class EventCard extends StatelessWidget {
   });
 
   @override
+  State<EventCard> createState() => _EventCardState();
+}
+
+class _EventCardState extends State<EventCard> {
+  @override
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -158,7 +168,7 @@ class EventCard extends StatelessWidget {
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: Image.network(
-                  imageUrl,
+                  widget.imageUrl,
                   width: 85,
                   height: 85,
                   fit: BoxFit.cover,
@@ -169,7 +179,7 @@ class EventCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    title,
+                    widget.title,
                     style: const TextStyle(
                       color: Colors.black,
                       fontSize: 18,
@@ -178,7 +188,7 @@ class EventCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '$participants participants',
+                    '${widget.participants} participants',
                     style: const TextStyle(
                       color: Colors.black,
                       fontSize: 14,
@@ -191,7 +201,7 @@ class EventCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Text(
-                    '$day, $date',
+                    '${widget.day}, ${widget.date}',
                     style: const TextStyle(
                       color: Colors.black,
                       fontSize: 14,
@@ -199,7 +209,7 @@ class EventCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '$startTime - $endTime',
+                    '${widget.startTime} - ${widget.endTime}',
                     style: const TextStyle(
                       color: Colors.black,
                       fontSize: 14,
@@ -207,7 +217,7 @@ class EventCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '$openSlots open slots',
+                    '${widget.openSlots} open slots',
                     style: const TextStyle(
                       color: Colors.black,
                       fontSize: 14,

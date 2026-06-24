@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-class NextEventBanner extends StatelessWidget {
+class NextEventBanner extends StatefulWidget {
   final String title;
   final String day;
   final String date;
@@ -18,6 +18,11 @@ class NextEventBanner extends StatelessWidget {
     required this.location,
   });
 
+  @override
+  State<NextEventBanner> createState() => _NextEventBannerState();
+}
+
+class _NextEventBannerState extends State<NextEventBanner> {
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -37,7 +42,7 @@ class NextEventBanner extends StatelessWidget {
           Row(
             children: [
               Text(
-                title,
+                widget.title,
                 style: const TextStyle(
                   color: Colors.black,
                   fontSize: 18,
@@ -46,7 +51,7 @@ class NextEventBanner extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                '$startTime - $endTime',
+                '${widget.startTime} - ${widget.endTime}',
                 style: const TextStyle(
                   color: Colors.black,
                   fontSize: 14,
@@ -56,7 +61,7 @@ class NextEventBanner extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '$day, $date',
+            '${widget.day}, ${widget.date}',
             style: const TextStyle(
               color: Colors.black,
               fontSize: 14,
@@ -64,7 +69,7 @@ class NextEventBanner extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            location,
+            widget.location,
             style: const TextStyle(
               color: Colors.black,
               fontSize: 14,
@@ -76,7 +81,7 @@ class NextEventBanner extends StatelessWidget {
   }
 }
 
-class UpcomingEventBanner extends StatelessWidget {
+class UpcomingEventBanner extends StatefulWidget {
   final String title;
   final String day;
   final String date;
@@ -92,6 +97,11 @@ class UpcomingEventBanner extends StatelessWidget {
     required this.endTime,
   });
 
+  @override
+  State<UpcomingEventBanner> createState() => _UpcomingEventBannerState();
+}
+
+class _UpcomingEventBannerState extends State<UpcomingEventBanner> {
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -111,7 +121,7 @@ class UpcomingEventBanner extends StatelessWidget {
           Row(
             children: [
               Text(
-                title,
+                widget.title,
                 style: const TextStyle(
                   color: Colors.black,
                   fontSize: 18,
@@ -123,7 +133,7 @@ class UpcomingEventBanner extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    '$day, $date',
+                    '${widget.day}, ${widget.date}',
                     style: const TextStyle(
                       color: Colors.black,
                       fontSize: 14,
@@ -131,7 +141,7 @@ class UpcomingEventBanner extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '$startTime - $endTime',
+                    '${widget.startTime} - ${widget.endTime}',
                     style: const TextStyle(
                       color: Colors.black,
                       fontSize: 14,
