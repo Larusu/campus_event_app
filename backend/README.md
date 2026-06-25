@@ -17,6 +17,8 @@ An example application built with dart_frog
 
 ### macOS
 
+<details>
+<summary>Click to expand macOS setup</summary>
 1. Install [Homebrew](https://brew.sh) if you don't have it:
    ```bash
    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -51,11 +53,12 @@ An example application built with dart_frog
    ```bash
    dart_frog --version
    ```
-
----
+</details>
 
 ### Windows
 
+<details>
+<summary>Click to expand Windows setup</summary>
 1. Download and run the Dart SDK installer from [dart.dev/get-dart](https://dart.dev/get-dart) — pick the **Windows** tab and download the `.exe`.
 
 2. The installer adds Dart to your PATH automatically. Open a **new** Command Prompt or PowerShell and verify:
@@ -82,9 +85,12 @@ An example application built with dart_frog
 
 > **Windows tip:** Use **PowerShell** or **Windows Terminal** — not Command Prompt — for a better experience. Git Bash also works.
 
----
+</details>
 
 ### Linux
+
+<details>
+<summary>Click to expand Linux setup</summary>
 
 1. Install the Dart SDK:
    ```bash
@@ -110,13 +116,105 @@ An example application built with dart_frog
    source ~/.bashrc
    ```
 
+</details>
+
 ---
 
 ## Firebase Setup
 
-The backend uses Firebase Admin SDK. You need a service account key to run it locally.
+The backend uses Firebase Admin SDK with credentials managed via environment variables in a `.env` file.
 
-**Get the file from a teammate** — it's not in the repo for security reasons.
+### Getting Access
+
+All backend developers' Gmail accounts already have access to the Firebaseproject. You can generate your own service account key directly:
+
+1. Go to the [Firebase Console](https://console.firebase.google.com), sign in with the Gmail account that has project access, and open the project.
+2. Go to **Project Settings → Service Accounts**.
+3. Click **Generate new private key**. This downloads a JSON file containing all the values you need.
+
+> If you sign in and don't see the project, ask Jeff to add your Gmail to the Firebase project's IAM permissions — don't share a single key file around.
+ 
+### Creating Your `.env`
+ 
+1. Copy the template:
+
+```bash
+   cd backend
+   cp .env.example .env
+```
+2. Open the downloaded service account JSON and the new `.env` side by side, and fill in each field:
+   | `.env` variable | JSON field |
+   |---|---|
+   | `FIREBASE_PROJECT_ID` | `project_id` |
+   | `FIREBASE_PRIVATE_KEY_ID` | `private_key_id` |
+   | `FIREBASE_SERVICE_ACCOUNT_KEY` | `private_key` |
+   | `FIREBASE_CLIENT_EMAIL` | `client_email` |
+   | `FIREBASE_CLIENT_ID` | `client_id` |
+   | `FIREBASE_WEB_API_KEY` | Firebase Web Api Key |
+
+3. Copy `private_key` straight into `FIREBASE_SERVICE_ACCOUNT_KEY`, wrapped in quotes, exactly as it appears in the JSON file — it's already a single line with `\n` escape sequences, so no manual editing is needed:
+
+```env
+   FIREBASE_SERVICE_ACCOUNT_KEY="-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BA...\n-----END PRIVATE KEY-----\n"
+```
+   The app code already converts these back into real newlines on startup (`.replaceAll(r'\n', '\n')`), so this format is required.
+ 
+#### Getting the Firebase Web API Key
+
+You can obtain the Web API Key:
+
+- Firebase Console
+- Open Firebase Console.
+- Go to Project Settings → General.
+- Under 'Your Apps', select `google-services.json`.
+- Copy the Web API Key value.
+
+```
+{
+  "client": [
+    {
+      "api_key": [
+        {
+          "current_key": "AIza..."
+        }
+      ]
+    }
+  ]
+}
+```
+
+Copy the value of current_key into:
+
+`FIREBASE_WEB_API_KEY=AIza...`
+
+4. Install dependencies and run:
+```bash
+   dart pub get
+   dart_frog dev
+```
+ 
+The Firebase Admin SDK initializes automatically on the first request using the credentials from `.env`.
+ 
+### `.env.example`
+ 
+```env
+FIREBASE_PROJECT_ID=
+FIREBASE_PRIVATE_KEY_ID=
+FIREBASE_SERVICE_ACCOUNT_KEY=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_CLIENT_ID=
+FIREBASE_WEB_API_KEY=
+```
+ 
+### Security Notes
+ 
+- ✓ `.env` is **never committed** to git (already in `.gitignore`)
+- ✓ `.env.example` is committed as a reference template — keep it empty, never fill in real values
+- ✓ Each developer generates their **own** service account key rather than sharing one
+- ✓ Production uses CI/CD environment variables, not a `.env` file
+---
+
+## Running the Backend
 
 1. Ask for `service-account.json` file (or download it yourself from Firebase Console → Project Settings → Service Accounts → Generate new private key)
 2. Place it in the `backend/` root:
@@ -149,17 +247,6 @@ Test it with:
 
 ```bash
 curl http://localhost:8080
-```
-
----
-
-## Environment Variables
-
-Create a `.env` file in `backend/` (also not committed):
-
-```env
-FIREBASE_PROJECT_ID=project-id
-SERVICE_ACCOUNT_PATH=service-account.json
 ```
 
 ---

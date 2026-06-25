@@ -15,6 +15,13 @@ build/
 # Test related files
 coverage/
 
-# environment variables
-.env 
-service-account.json
+# Environment Variables & Credentials (NEVER commit sensitive data)
+.env
+.env.local
+.env.*.local
+credentials/
+*.json
+
+# IDE
+.vscode/
+.idea/

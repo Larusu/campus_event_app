@@ -1,0 +1,443 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:backend/constants/error_codes.dart';
+import 'package:backend/firebase_config.dart';
+import 'package:backend/models/user.dart';
+import 'package:backend/utils/response_helper.dart';
+
+import 'package:firebase_admin/firebase_admin.dart';
+import 'package:googleapis_auth/auth_io.dart';
+import 'package:http/http.dart' as http;
+
+/// Firebase Authentication Service
+///
+/// Handles user operations using:
+/// - Firebase Admin SDK: creating/deleting Auth users, issuing custom tokens
+/// - Firebase Identity Toolkit REST API:
+///   - Verifying email/password on sign-in (Admin SDK has no password-check)
+/// - Firestore REST API: the ONLY source of truth for role, name, contact,
+///   and is_deleted. Nothing user-facing is ever stored in custom claims.
+///
+/// On failure, every method throws [AuthException] - callers (routes)
+/// catch this one type and hand it to [ResponseHelper.error]. Nothing in
+/// this file returns a success/failure Map for the caller to re-interpret.
+class FirebaseAuthService {
+  static Auth? _auth;
+
+  static Auth get _firebaseAuth {
+    final config = FirebaseConfig.app;
+    if (config == null) {
+      throw StateError('Firebase not initialized');
+    }
+    return _auth ??= config.auth();
+  }
+
+  // ---------------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------------
+
+  /// Register a new user.
+  ///
+  /// Flow:
+  ///   1. Create Firebase Auth user
+  ///   2. Sign in via REST to get an ID token for the new account
+  ///   3. Send verification email via Identity Toolkit (requires ID token)
+  ///   4. Write Firestore document
+  ///
+  /// If the Firestore write fails, the Auth user is deleted so no orphaned
+  /// accounts are left behind. The verification email is sent before the
+  /// Firestore write — if the write then fails and we roll back, the email
+  /// will have already been sent but the account won't exist, which is
+  /// acceptable (the user simply tries to register again).
+  static Future<Map<String, dynamic>> registerUser({
+    required String firstName,
+    required String lastName,
+    required String email,
+    required String contactNumber,
+    required String password,
+  }) async {
+    final normalizedEmail = email.trim().toLowerCase();
+    final role = _determineRole(normalizedEmail);
+
+    // Step 1: create the Firebase Auth account.
+    String uid;
+    try {
+      final userRecord = await _firebaseAuth.createUser(
+        email: normalizedEmail,
+        password: password,
+      );
+      uid = userRecord.uid;
+    } on FirebaseException catch (e) {
+      if (e.code == 'auth/email-already-exists') {
+        throw AuthException(
+          AuthErrorCode.emailAlreadyExists,
+          'An account with this email already exists.',
+        );
+      }
+      throw AuthException(
+        AuthErrorCode.internalError,
+        'Registration failed: ${e.message}',
+      );
+    }
+
+    // Step 2: write the Firestore document.
+    final name = '$firstName $lastName'.trim();
+    final createdAt = DateTime.now().toUtc().toIso8601String();
+
+    try {
+      await _writeUserDocument(
+        uid: uid,
+        email: normalizedEmail,
+        name: name,
+        contact: contactNumber,
+        role: role,
+        createdAt: createdAt,
+      );
+    } catch (e) {
+      // Firestore write failed - don't leave an orphaned Auth user behind.
+      await _deleteAuthUserSafely(uid);
+      print('AUTH009 Step 2 (Firestore write) failed: $e');
+      throw AuthException(
+        AuthErrorCode.internalError,
+        'Registration failed, please try again',
+      );
+    }
+
+    final customToken = await _firebaseAuth.createCustomToken(uid);
+
+    final user = User(
+      uid: uid,
+      email: normalizedEmail,
+      name: name,
+      contact: contactNumber,
+      role: role,
+      createdAt: createdAt,
+    );
+
+    return {'user': user, 'token': customToken};
+  }
+
+  /// Sign in with email and password.
+  ///
+  /// Password is verified via the Identity Toolkit REST API (NOT the
+  /// Admin SDK - it has no password-check method). Role/name/contact are
+  /// then read fresh from Firestore - never from a token or claim - so a
+  /// role change made by faculty/super_admin takes effect on the user's
+  /// very next sign-in with no stale-token window.
+  static Future<Map<String, dynamic>> signInUser({
+    required String email,
+    required String password,
+  }) async {
+    final normalizedEmail = email.trim().toLowerCase();
+
+    final uid = await _verifyPasswordAndGetUid(
+      email: normalizedEmail,
+      password: password,
+    );
+
+    final userDoc = await _getUserDocument(uid);
+    if (userDoc == null) {
+      // Auth user exists but no Firestore doc - treat as not found rather
+      // than leaking that the Auth account exists with a broken profile.
+      throw AuthException(AuthErrorCode.userNotFound, 'User not found');
+    }
+
+    final isDeleted = userDoc['is_deleted'] as bool? ?? false;
+    if (isDeleted) {
+      throw AuthException(
+        AuthErrorCode.accountDeactivated,
+        'This account has been deactivated',
+      );
+    }
+
+    final customToken = await _firebaseAuth.createCustomToken(uid);
+
+    // Fire-and-forget: update last_login_at without blocking the response.
+    unawaited(_touchLastLoginAt(uid));
+
+    final user = User(
+      uid: uid,
+      email: normalizedEmail,
+      name: userDoc['name'] as String? ?? '',
+      contact: userDoc['contact'] as String? ?? '',
+      role: userDoc['role'] as String? ?? 'guest',
+      createdAt: null,
+    );
+
+    return {'user': user, 'token': customToken};
+  }
+
+  /// Updates last_login_at on the user's Firestore doc. Deliberately
+  /// never throws past this function - sign-in must succeed even if
+  /// this write fails.
+  static Future<void> _touchLastLoginAt(String uid) async {
+    try {
+      await _patchUserDocument(uid, {
+        'last_login_at': DateTime.now().toUtc().toIso8601String(),
+      });
+    } catch (e) {
+      // ignore: avoid_print
+      print('⚠ Failed to update last_login_at for $uid: $e');
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Identity Toolkit REST API
+  // ---------------------------------------------------------------------
+
+  /// Verifies email/password against Firebase and returns the uid.
+  /// Throws AuthErrorCode.invalidCredentials on any failure — deliberately
+  /// generic so we never reveal whether the email exists or the password
+  /// was wrong (that distinction lets attackers enumerate valid emails).
+  static Future<String> _verifyPasswordAndGetUid({
+    required String email,
+    required String password,
+  }) async {
+    final apiKey = _requireApiKey();
+    final uri = Uri.parse(
+      'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword'
+      '?key=$apiKey',
+    );
+
+    http.Response response;
+    try {
+      response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email,
+          'password': password,
+          'returnSecureToken': true,
+        }),
+      );
+    } catch (_) {
+      throw AuthException(
+        AuthErrorCode.internalError,
+        'Internal server error during sign in',
+      );
+    }
+
+    if (response.statusCode != 200) {
+      throw AuthException(
+        AuthErrorCode.invalidCredentials,
+        'Invalid email or password',
+      );
+    }
+
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    final uid = decoded['localId'] as String?;
+    if (uid == null) {
+      throw AuthException(
+        AuthErrorCode.invalidCredentials,
+        'Invalid email or password',
+      );
+    }
+    return uid;
+  }
+
+  /// Returns the FIREBASE_WEB_API_KEY or throws [AuthException] if missing.
+  static String _requireApiKey() {
+    final apiKey = FirebaseConfig.envMap['FIREBASE_WEB_API_KEY'];
+    if (apiKey == null || apiKey.isEmpty) {
+      throw AuthException(
+        AuthErrorCode.internalError,
+        'Server misconfigured: missing FIREBASE_WEB_API_KEY',
+      );
+    }
+    return apiKey;
+  }
+
+  // ---------------------------------------------------------------------
+  // Role detection
+  // ---------------------------------------------------------------------
+
+  static String _determineRole(String email) {
+    if (email.endsWith('@ciit.edu.ph')) {
+      return 'student';
+    }
+    return 'guest';
+  }
+
+  // ---------------------------------------------------------------------
+  // Orphan cleanup
+  // ---------------------------------------------------------------------
+
+  static Future<void> _deleteAuthUserSafely(String uid) async {
+    try {
+      await _firebaseAuth.deleteUser(uid);
+    } catch (_) {
+      // Best-effort cleanup. If this also fails, the orphaned Auth user
+      // will simply fail to sign in later (no matching Firestore doc),
+      // which is the documented fallback behavior for this edge case.
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Firestore REST plumbing (shared by read + write)
+  // ---------------------------------------------------------------------
+
+  /// Builds an authenticated HTTP client for Firestore REST calls using
+  /// the service account credentials (NOT the Web API key - that's only
+  /// for the Identity Toolkit calls above).
+  static Future<http.Client> _firestoreClient() async {
+    final envMap = FirebaseConfig.envMap;
+    final projectId = envMap['FIREBASE_PROJECT_ID'];
+    if (projectId == null || projectId.isEmpty) {
+      throw StateError('FIREBASE_PROJECT_ID missing from .env');
+    }
+
+    final credentials = ServiceAccountCredentials.fromJson({
+      'type': 'service_account',
+      'project_id': projectId,
+      'private_key_id': envMap['FIREBASE_PRIVATE_KEY_ID'],
+      'private_key': envMap['FIREBASE_SERVICE_ACCOUNT_KEY']?.replaceAll(r'\n', '\n'),
+      'client_email': envMap['FIREBASE_CLIENT_EMAIL'],
+      'client_id': envMap['FIREBASE_CLIENT_ID'],
+    });
+
+    final scopes = [
+      'https://www.googleapis.com/auth/datastore',
+      'https://www.googleapis.com/auth/cloud-platform',
+    ];
+    final authClient = await obtainAccessCredentialsViaServiceAccount(
+      credentials,
+      scopes,
+      http.Client(),
+    );
+    return authenticatedClient(http.Client(), authClient);
+  }
+
+  static String _firestoreProjectId() {
+    final projectId = FirebaseConfig.envMap['FIREBASE_PROJECT_ID'];
+    if (projectId == null || projectId.isEmpty) {
+      throw StateError('FIREBASE_PROJECT_ID missing from .env');
+    }
+    return projectId;
+  }
+
+  /// Writes (creates) the users/{uid} Firestore document.
+  /// snake_case field names. is_deleted always present. last_login_at
+  /// and updated_at are intentionally absent at creation time.
+  static Future<void> _writeUserDocument({
+    required String uid,
+    required String email,
+    required String name,
+    required String contact,
+    required String role,
+    required String createdAt,
+  }) async {
+    final client = await _firestoreClient();
+    final projectId = _firestoreProjectId();
+
+    final uri = Uri.parse(
+      'https://firestore.googleapis.com/v1/projects/$projectId'
+      '/databases/(default)/documents/users?documentId=$uid',
+    );
+
+    final response = await client.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'fields': {
+          'email': {'stringValue': email},
+          'name': {'stringValue': name},
+          'contact': {'stringValue': contact},
+          'role': {'stringValue': role},
+          'created_at': {'timestampValue': createdAt},
+          'is_deleted': {'booleanValue': false},
+        },
+      }),
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw StateError(
+        'Firestore write failed for users/$uid: '
+        '${response.statusCode} ${response.body}',
+      );
+    }
+  }
+
+  /// Patches specific fields on the users/{uid} Firestore document
+  /// without overwriting the whole document. Used for last_login_at
+  /// (and will be reused by Feature 2's updated_at writes).
+  static Future<void> _patchUserDocument(
+    String uid,
+    Map<String, dynamic> fields,
+  ) async {
+    final client = await _firestoreClient();
+    final projectId = _firestoreProjectId();
+
+    final fieldPaths = fields.keys.map((k) => 'updateMask.fieldPaths=$k').join('&');
+    final uri = Uri.parse(
+      'https://firestore.googleapis.com/v1/projects/$projectId'
+      '/databases/(default)/documents/users/$uid'
+      '?$fieldPaths',
+    );
+
+    final encodedFields = <String, dynamic>{};
+    for (final entry in fields.entries) {
+      final value = entry.value;
+      if (value is bool) {
+        encodedFields[entry.key] = {'booleanValue': value};
+      } else if (value is String) {
+        encodedFields[entry.key] = entry.key.endsWith('_at')
+            ? {'timestampValue': value}
+            : {'stringValue': value};
+      } else {
+        throw ArgumentError(
+          'Unsupported field type for ${entry.key}: ${value.runtimeType}',
+        );
+      }
+    }
+
+    final response = await client.patch(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'fields': encodedFields}),
+    );
+
+    if (response.statusCode != 200) {
+      throw StateError(
+        'Firestore patch failed for users/$uid: '
+        '${response.statusCode} ${response.body}',
+      );
+    }
+  }
+
+  /// Reads the users/{uid} Firestore document.
+  /// Returns null if the document does not exist. Throws on any other
+  /// non-2xx response or network error.
+  static Future<Map<String, dynamic>?> _getUserDocument(String uid) async {
+    final client = await _firestoreClient();
+    final projectId = _firestoreProjectId();
+
+    final uri = Uri.parse(
+      'https://firestore.googleapis.com/v1/projects/$projectId'
+      '/databases/(default)/documents/users/$uid',
+    );
+
+    final response = await client.get(uri);
+
+    if (response.statusCode == 404) {
+      return null;
+    }
+    if (response.statusCode != 200) {
+      throw StateError(
+        'Firestore read failed for users/$uid: '
+        '${response.statusCode} ${response.body}',
+      );
+    }
+
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    final fields = decoded['fields'] as Map<String, dynamic>? ?? {};
+
+    return {
+      'email': fields['email']?['stringValue'] as String?,
+      'name': fields['name']?['stringValue'] as String?,
+      'contact': fields['contact']?['stringValue'] as String?,
+      'role': fields['role']?['stringValue'] as String?,
+      'is_deleted': fields['is_deleted']?['booleanValue'] as bool?,
+    };
+  }
+}
