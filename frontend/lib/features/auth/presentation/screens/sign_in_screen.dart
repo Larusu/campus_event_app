@@ -1,6 +1,8 @@
 import 'package:campus_event_app/features/auth/presentation/widgets/app_button.dart';
 import 'package:campus_event_app/features/auth/presentation/widgets/app_text_field.dart';
+import 'package:campus_event_app/features/auth/providers/auth_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
@@ -33,18 +35,20 @@ class _SignInScreenState extends State<SignInScreen> {
       _errorMessage = null;
     });
 
-    try {
-      // await context.read<AuthProvider>().signIn(
-      //       email: _emailController.text.trim(),
-      //       password: _passwordController.text,
-      //     );
-      // // Navigation is handled by your route guard in app.dart
-      // // reacting to AuthProvider status change
-    } catch (e) {
-      setState(() => _errorMessage = e.toString());
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+    final success = await context.read<AuthProvider>().signIn(
+          email: _emailController.text.trim(),
+          password: _passwordController.text,
+        );
+
+    if (!mounted) return;
+    setState(() {
+      _isLoading = false;
+      if (!success) {
+        _errorMessage = context.read<AuthProvider>().errorMessage;
+      }
+    });
+    // Navigation on success is handled by the route guard reacting to the
+    // AuthProvider status change.
   }
 
   @override
@@ -52,9 +56,11 @@ class _SignInScreenState extends State<SignInScreen> {
     return Scaffold(
         body: SafeArea(
           child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
                 Text(
                   "Log in account",
                   style: TextStyle(
@@ -145,6 +151,22 @@ class _SignInScreenState extends State<SignInScreen> {
 
                 SizedBox(height: 20,),
 
+                if (_errorMessage != null) ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 50),
+                    child: Text(
+                      _errorMessage!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        color: Colors.red,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 50),
                   child: SizedBox(
@@ -192,7 +214,8 @@ class _SignInScreenState extends State<SignInScreen> {
 
                 SizedBox(height: 25,),
               
-              ],
+                ],
+              ),
             ),
           ),
         )
