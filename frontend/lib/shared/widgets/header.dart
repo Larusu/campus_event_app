@@ -48,7 +48,7 @@ class _HeaderState extends State<Header> {
     );
     final dailyDates = [focusedDate.day];
 
-    void _previousPeriod() {
+    void previousPeriod() {
       setState(() {
         if (selectedValue == 'Week') {
           focusedDate = focusedDate.subtract(
@@ -67,7 +67,7 @@ class _HeaderState extends State<Header> {
       });
     }
 
-    void _nextPeriod() {
+    void nextPeriod() {
       setState(() {
         if (selectedValue == 'Week') {
           focusedDate = focusedDate.add(
@@ -86,7 +86,7 @@ class _HeaderState extends State<Header> {
       });
     }
 
-    void _goToToday() {
+    void goToToday() {
       setState(() {
         focusedDate = DateTime.now();
       });
@@ -125,7 +125,7 @@ class _HeaderState extends State<Header> {
                     height: 4,
                   ),
                   TextButton(
-                    onPressed: _goToToday,
+                    onPressed: goToToday,
                     style: TextButton.styleFrom(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,
@@ -214,15 +214,15 @@ class _HeaderState extends State<Header> {
             widget.page == 'calendar'
                 ? CalendarHeader(
                     key: ValueKey(
-                        '${selectedValue}-${focusedDate.year}-${focusedDate.month}-${focusedDate.day}'),
+                        '$selectedValue-${focusedDate.year}-${focusedDate.month}-${focusedDate.day}'),
                     month: month,
                     dates: selectedValue == "Month"
                         ? monthlyDates
                         : selectedValue == "Week"
                             ? weeklyDates
                             : dailyDates,
-                    onPrevious: _previousPeriod,
-                    onNext: _nextPeriod,
+                    onPrevious: previousPeriod,
+                    onNext: nextPeriod,
                   )
                 : EventsListHeader(filters: widget.filters)
           ]

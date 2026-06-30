@@ -25,7 +25,7 @@ class AppButton extends StatelessWidget {
           ? const SizedBox(
               height: 20,
               width: 20,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF00364D)),
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
             )
           : Text(label,
           style: TextStyle(

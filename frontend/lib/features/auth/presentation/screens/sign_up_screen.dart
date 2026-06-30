@@ -108,8 +108,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
                             hintText: "First name",
                             isRequired: true,
                             validator: (value) {
-                              if (value == null || value.isEmpty)
+                              if (value == null || value.isEmpty) {
                                 return 'First name is required';
+                              }
 
                               return null;
                             },
@@ -124,8 +125,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
                             hintText: "Last name",
                             isRequired: true,
                             validator: (value) {
-                              if (value == null || value.isEmpty)
+                              if (value == null || value.isEmpty) {
                                 return 'Last name is required';
+                              }
 
                               return null;
                             },
@@ -163,17 +165,17 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       keyboardType: TextInputType.phone,
                       isRequired: true,
                       validator: (value) {
-                        if (value == null || value.isEmpty)
-                          return 'Contact # is required';
+                        if (value == null || value.isEmpty) {
+                          return 'Contact # is required'; }
 
-                        if (!value.startsWith('09'))
-                          return 'Contact # must start with 09';
+                        if (!value.startsWith('09')) {
+                          return 'Contact # must start with 09'; }
 
-                        if (value.length != 11)
-                          return 'Contact number must be 11 digits';
+                        if (value.length != 11) {
+                          return 'Contact number must be 11 digits'; }
 
-                        if (!RegExp(r'^\d+$').hasMatch(value))
-                          return 'Contact must contain digits only';
+                        if (!RegExp(r'^\d+$').hasMatch(value)) {
+                          return 'Contact must contain digits only'; }
 
                         return null;
                       },

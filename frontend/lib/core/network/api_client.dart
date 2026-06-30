@@ -63,7 +63,8 @@ class ApiClient {
   Future<Map<String, String>> _headers(bool auth) async {
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (auth) {
-      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      final user = FirebaseAuth.instance.currentUser;
+      final token = user == null ? null : await user.getIdToken();
       if (token != null) {
         headers['Authorization'] = 'Bearer $token';
       }
